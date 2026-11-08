@@ -119,7 +119,12 @@ jobs:
             cmdline="$cmdline sweetfb_scale=1 sweetfb_lw=750 sweetfb_lh=1334"
           fi
           python3 tools/mkadt_j7prime.py out/j7prime.adt --board "${{ inputs.board || 'd21ap' }}" $iphone8
+          echo "cmdline: $cmdline"
           python3 tools/mkpayload.py kernel/kernel.development.a5xelte out/j7prime.adt out/payload.bin --cmdline "$cmdline"
+          grep -a -q 'a5touchprobe=0' out/payload.bin || {
+            echo "payload is missing a5touchprobe=0 (the 7580 touch probe panics on this SoC)"
+            exit 1
+          }
           python3 tools/mkembeddedkernel.py shim/j7prime/outxnu/Image out/payload.bin out/embedded-kernel.Image
           python3 tools/mkdtbh.py -o out/dt.img device/on7xelte.dtb
           python3 tools/mkj7img.py --kernel out/embedded-kernel.Image --dt out/dt.img --name j7xnu -o out/j7-xnu-boot.img
