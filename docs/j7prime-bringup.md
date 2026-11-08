@@ -13,7 +13,7 @@ Measured on the phone with a probe (hand-off facts):
 ## Build order
 1. Actions > xnu > Run workflow: branch herolte, machine_config = A5XELTE. Wait for it to finish.
 2. Take the number from that run's URL (.../actions/runs/NUMBER).
-3. Actions > j7-boot > Run workflow: kernel_run_id = NUMBER. Download the artifact j7-xnu-boot.
+3. Actions > j7-boot > Run workflow: kernel_run_id = NUMBER (or leave it blank for the latest successful xnu run on this branch). Download the artifact j7-xnu-boot.
 4. Flash j7-xnu-boot.img to BOOT (TWRP Install Image, or dd to /dev/block/mmcblk0p10).
 
 First boot expectation: the Samsung logo, then "J7 PRIME XNU LOADER / PAYLOAD READY / STARTING XNU", then

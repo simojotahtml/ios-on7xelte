@@ -1,6 +1,11 @@
 name: j7-boot
 
 on:
+  # Running this workflow file from a push on herolte is a supported way to build the J7 boot image;
+  # it uses the latest successful xnu run on the branch when no kernel_run_id is given.
+  push:
+    branches: [herolte]
+    paths: [.github/workflows/j7-boot.yml]
   workflow_dispatch:
     inputs:
       kernel_run_id:
@@ -37,12 +42,25 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+      - name: Resolve kernel run id
+        id: kernel
+        run: |
+          set -euo pipefail
+          id="${{ inputs.kernel_run_id }}"
+          if [ -z "$id" ]; then
+            url=$(printf 'https://api.github.com/repos/%s/actions/workflows/xnu.yml/runs?branch=%s&status=success&per_page=1' \
+              "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME")
+            id=$(curl -sf -H "Authorization: Bearer ${GITHUB_TOKEN}" "$url" \
+              | python3 -c "import json,sys; print(json.load(sys.stdin)['workflow_runs'][0]['id'])")
+          fi
+          echo "Using xnu run id ${id}"
+          echo "id=${id}" >> "$GITHUB_OUTPUT"
       - name: Kernel from the xnu run
         uses: actions/download-artifact@v4
         with:
           name: xnu-kernel
           path: kernel
-          run-id: ${{ inputs.kernel_run_id }}
+          run-id: ${{ steps.kernel.outputs.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Loader
         run: |
@@ -86,9 +104,9 @@ jobs:
           set -euxo pipefail
           mkdir -p out
           ls -l kernel
-          cmdline="${{ inputs.cmdline }}"
+          cmdline="${{ inputs.cmdline || 'debug=0xc serial=3 cpus=8 keepsyms=1 -noprogress' }}"
           iphone8=""
-          if [ "${{ inputs.iphone8 }}" = "true" ]; then
+          if [ "${{ inputs.iphone8 || 'true' }}" = "true" ]; then
             iphone8="--iphone8"
             cmdline="$cmdline sweetfb_scale=1 sweetfb_lw=750 sweetfb_lh=1334"
           fi
