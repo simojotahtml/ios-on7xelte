@@ -202,6 +202,7 @@ jobs:
           cp -R "$SDK/System/Library/Frameworks/Kernel.framework/Versions/A/PrivateHeaders/platform" sdk-kernel-platform/ || true
 
           tar czf buildtree.tgz \
+            --ignore-failed-read \
             --exclude='*.o' \
             --exclude='*.cpo' \
             --exclude='*.a' \

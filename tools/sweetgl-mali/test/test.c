@@ -64,6 +64,23 @@ int main(void) {
     struct drm_panfrost_create_bo a = { .size = 5000 }, b = { .size = 100000 };
     CHECK(drmIoctl(fd, DRM_IOCTL_PANFROST_CREATE_BO, &a) == 0 && a.handle && a.offset);
     CHECK(drmIoctl(fd, DRM_IOCTL_PANFROST_CREATE_BO, &b) == 0 && b.handle != a.handle && b.offset != a.offset);
+
+    /* Mesa asks for a 128 MiB tiler heap; the emulated kernel maps whole BOs, so CREATE_BO must
+     * report the heap it actually backed (32 MiB by default), never a size it cannot map. */
+    struct drm_panfrost_create_bo heap = { .size = 128u << 20, .flags = PANFROST_BO_HEAP };
+    CHECK(drmIoctl(fd, DRM_IOCTL_PANFROST_CREATE_BO, &heap) == 0 && heap.handle && heap.offset);
+    CHECK(heap.size == (32u << 20));
+    struct drm_panfrost_get_bo_offset hgo = { .handle = heap.handle };
+    CHECK(drmIoctl(fd, DRM_IOCTL_PANFROST_GET_BO_OFFSET, &hgo) == 0 && hgo.offset == heap.offset);
+
+    /* The override is environment-controlled for on-device experiments, but the kernel's 64 MiB
+     * mapping limit is a hard ceiling for a BO backed here. */
+    setenv("SWEET_HEAP_MB", "128", 1);
+    struct drm_panfrost_create_bo heap64 = { .size = 128u << 20, .flags = PANFROST_BO_HEAP };
+    CHECK(drmIoctl(fd, DRM_IOCTL_PANFROST_CREATE_BO, &heap64) == 0 && heap64.size == (64u << 20));
+    unsetenv("SWEET_HEAP_MB");
+    drmCloseBufferHandle(fd, heap64.handle);
+    drmCloseBufferHandle(fd, heap.handle);
     struct drm_panfrost_get_bo_offset go = { .handle = b.handle }; CHECK(drmIoctl(fd, DRM_IOCTL_PANFROST_GET_BO_OFFSET, &go) == 0 && go.offset == b.offset);
     struct drm_panfrost_mmap_bo ma = { .handle = a.handle }, mb = { .handle = b.handle };
     CHECK(drmIoctl(fd, DRM_IOCTL_PANFROST_MMAP_BO, &ma) == 0 && drmIoctl(fd, DRM_IOCTL_PANFROST_MMAP_BO, &mb) == 0 && ma.offset != mb.offset);

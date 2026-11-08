@@ -1,0 +1,33 @@
+From: j7 gpu diagnostics
+Subject: j7prime g3d: log submit and fault context before the GPU reset
+
+After 0318 (GPU config quirks) and 0319 (chain visibility barrier), the next
+Mesa failure can otherwise be read only after selector 3 has reset the GPU and
+repowered it. Record the submitted chain and the job/MMU IRQ state whenever a
+wait does not complete. This is diagnostic only: no submit, wait, reset or
+recovery behaviour is changed.
+
+diff --git a/iokit/Kernel/arm/A5XELTEGPU.cpp b/iokit/Kernel/arm/A5XELTEGPU.cpp
+--- a/iokit/Kernel/arm/A5XELTEGPU.cpp
++++ b/iokit/Kernel/arm/A5XELTEGPU.cpp
+@@ -344,6 +344,8 @@ j7m_submit(uint32_t slot, uint64_t jc_va, uint32_t *seq)
+     a5g3d_write32(gJ7M.gpu, js + 0x60, 1);   /* JS_COMMAND_NEXT = START */
+     gJ7M.inflight = true;
+     gJ7M.inflightSlot = slot;
+     *seq = ++gJ7M.seq;
++    IOLog("J7 G3D: submit seq=%u slot=%u jc=%llx\n", *seq, slot,
++        (unsigned long long)jc_va);
+     return true;
+ }
+ 
+@@ -376,6 +378,10 @@ j7m_wait(unsigned timeout_us)
+     } else if (!(jobIRQ & (1u << slot))) {
+         rc = -1;
+     }
++    if (rc != 0) {
++        IOLog("J7 G3D: wait fault slot=%u rc=%d job_irq=%08x mmu_irq=%08x js_status=%08x\n", slot, rc,
++            jobIRQ, mmuIRQ, a5g3d_read32(gJ7M.gpu, J7M_JS(slot) + 0x24));
++    }
+     if (rc != -1) {
+         a5g3d_write32(gJ7M.gpu, J7M_JOB_IRQ_CLEAR, jobIRQ);
+         a5g3d_write32(gJ7M.gpu, J7M_MMU_IRQ_CLEAR, mmuIRQ);

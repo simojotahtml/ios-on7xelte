@@ -96,3 +96,15 @@ published with the ios-root release as `sweetgl-extents.txt`.
   throwaway dylib with `-undefined error`: `link.log` lists every symbol still missing.
 - 0313 (sweetenv) was rewritten against the real kern_exec.c from the xnu-peek artifact: exec_add_user_string takes an
   int segment here and the first attempt's context did not match.
+- Mesa asks for a 128 MiB `PANFROST_BO_HEAP`, while the user-client maps whole BOs. `sweet_drm_mali.c` now backs
+  the heap at 32 MiB by default (`SWEET_HEAP_MB` overrides, capped at the kernel's 64 MiB whole-BO map limit)
+  and returns that actual size in `DRM_IOCTL_PANFROST_CREATE_BO`; otherwise Mesa thinks the tiler heap is
+  larger than the mapping. `tools/sweetgl-mali/test/run.sh` checks the 32 MiB default and the 64 MiB ceiling.
+- Patch 0318 reapplies Panfrost's GPU config quirks after every reset; patch 0319 adds the `dsb sy` chain
+  barrier. Patch 0320 logs the submitted chain and pre-reset fault context, so a failing batch can be
+  correlated by sequence before the GPU self-recovery reset clears it. These two patches are compile-source
+  and host-test work; their on-device result is still pending.
+- The next J7 GPU trial is therefore the same `j7gpu=7` boot with the current kernel and `sweetgl.dylib`
+  pair. Do not flash a new kernel alone or assume the fixes passed until the SYSTEM log has been pulled.
+  Keep the kernel, dylib and log from that trial together; compare `J7 G3D: submit seq=...` with any
+  following `J7 G3D: wait fault slot=...` line.
