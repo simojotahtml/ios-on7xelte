@@ -105,6 +105,14 @@ jobs:
           mkdir -p out
           ls -l kernel
           cmdline="${{ inputs.cmdline || 'debug=0xc serial=3 cpus=8 keepsyms=1 -noprogress' }}"
+          # The A5XELTE kernel also runs the Exynos 7580 bring-up probes. Their MIF CMU
+          # read (0x10430900) has no responder on this SoC: it raises an external abort
+          # (fault_code 0x10) and panics in a5xelte_touch_probe. The probe is diagnostic
+          # only, so it is switched off unless the caller asked for it.
+          case " $cmdline " in
+            *" a5touchprobe="*) ;;
+            *) cmdline="$cmdline a5touchprobe=0" ;;
+          esac
           iphone8=""
           if [ "${{ inputs.iphone8 || 'true' }}" = "true" ]; then
             iphone8="--iphone8"

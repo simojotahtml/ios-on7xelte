@@ -40,6 +40,27 @@ the second cluster (CPU_ON target 0x100..) is the suspect: report the `CPU_ON rc
 0305 adds multi-block eMMC reads, off unless the boot args contain `emmcfast=1`; try it after cores work.
 Do not expect miracles from either: the UI is still software-rendered on the CPU (no GPU), so cores help most.
 
+## Panic: `a5xelte_touch_probe` external abort (2026-11-08)
+
+First boot of a `j7-boot` image (kernel from `xnu` run 42484998413, default cmdline with `cpus=8` and
+`iphone8=true`) panicked a few lines after `A5XELTE KEYS: GPIO2 ...`:
+
+```
+panic(cpu 0 caller 0xfffffff007abe48c): Kernel data abort. at pc 0xfffffff00748fdb4, lr 0xfffffff00748fd98
+  esr: 0x96000210   far: 0xfffffff004870900
+```
+
+Symbolized against that kernel (incl. the build in `j7-sym`, see below), the faulting instruction is
+`ldr w22, [x0, #0x900]` into `_a5xelte_touch_probe`+0x1a4, where `x0` is the `ml_io_map` of **`0x10430000`** —
+the Exynos **7580** MIF CMU page (patch 0118/0120). `ESR 0x96000210` is a read (WnR=0) that aborts with
+`DFSC 0x10` (synchronous external abort), i.e. nothing answers at `0x10430900` on this SoC; the same class of
+hole the GPU work hit in the PMU/CMU pages (0306/0307). The probe is diagnostic only, so the boot path now
+appends `a5touchprobe=0` to the J7 cmdline (patches 0210/0211/0225 already keep it out of the HEROLTE build).
+
+`j7-sym` (Actions, `kernel_run_id` + addresses) downloads that run's `xnu-kernel`, prints the nearest symbols,
+the faulting instruction and the Mach-O segment map, and mirrors the report as a public annotation, so a
+screen photo of a panic is enough to name the function.
+
 ## GPU bring-up stages (boot-arg j7gpu=N, Mali-T830 MP1)
 1 publish resources only; 2 also read PMU G3D status + CMU+000; 3 also read GPU_ID and the Midgard identity
 registers (confirmed on hardware: GPU_ID 08300010, 3 job slots, 8 address spaces, shader/tiler/L2 mask 1);
