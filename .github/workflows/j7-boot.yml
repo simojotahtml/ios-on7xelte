@@ -20,7 +20,7 @@ on:
       iphone8:
         description: "Internal resolution: render an iPhone 8 screen (750x1334 @2x) and scale it to the panel (needs the kernel built with 0315). Adds sweetfb_scale=1 sweetfb_lw=750 sweetfb_lh=1334 to the boot args."
         type: boolean
-        default: false
+        default: true
 
 # Downloading the xnu run's artifact (run-id) uses the workflow token; in a private repository that
 # needs actions: read (the repository's default token permissions do not include it).

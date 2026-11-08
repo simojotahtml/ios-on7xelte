@@ -4,8 +4,9 @@
  * and forwards what comes out to the persistent log through sweet_drm_log (kernel log, 160 characters a
  * line, "J7 G3D client: " in front), so a faulting job can be read after the boot.
  *
- * On by default while the GPU path is being brought up; the environment variable SWEET_TRACE=0 turns it
- * off. Only the first SWEET_TRACE_LINES lines are logged (the rest is read and dropped, so the writer never
+ * This is opt-in while the GPU path is brought up: SWEET_TRACE=1 turns it on. It stays off by
+ * default so the job-decode pipe and up to 8000 kernel-log lines do not cost CPU during normal use.
+ * Only the first SWEET_TRACE_LINES lines are logged (the rest is read and dropped, so the writer never
  * blocks).
  */
 #include <pthread.h>
@@ -56,11 +57,11 @@ void
 sweet_trace_start(void)
 {
     static int started;
-    const char *off = getenv("SWEET_TRACE");
+    const char *on = getenv("SWEET_TRACE");
     int fds[2];
     pthread_t thread;
 
-    if (started || (off && off[0] == '0')) {
+    if (started || !on || on[0] != '1') {
         return;
     }
     started = 1;
@@ -80,5 +81,5 @@ sweet_trace_start(void)
     /* Read by Mesa when it creates the screen. PANDECODE_DUMP_FILE=stderr keeps pandecode off the disk. */
     setenv("PAN_MESA_DEBUG", "trace", 0);
     setenv("PANDECODE_DUMP_FILE", "stderr", 0);
-    sweet_drm_log("sweet_trace: job trace on (SWEET_TRACE=0 turns it off)");
+    sweet_drm_log("sweet_trace: job trace on (SWEET_TRACE=1)");
 }

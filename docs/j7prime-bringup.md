@@ -108,3 +108,10 @@ published with the ios-root release as `sweetgl-extents.txt`.
   pair. Do not flash a new kernel alone or assume the fixes passed until the SYSTEM log has been pulled.
   Keep the kernel, dylib and log from that trial together; compare `J7 G3D: submit seq=...` with any
   following `J7 G3D: wait fault slot=...` line.
+- For raw UI speed, `j7-boot` now defaults `iphone8=true`: iOS renders at 750x1334 and the kernel scales
+  it to the 1080x1920 panel. That is roughly half the pixels for the CPU/GPU rasteriser, at the cost of
+  blurrier 1.44x upscale. Set `iphone8=false` when you want native 1080x1920 rendering again.
+- The framebuffer present copy is no longer HEROLTE-only: the existing helper-thread `memcpy` bands are
+  enabled for the A5XELTE/J7 build too (`sweetfb_copythreads=N`, default 3 helpers, 0 = off).
+- Mesa's `PAN_MESA_DEBUG=trace` capture is now opt-in only (`SWEET_TRACE=1`); it is no longer on by
+  default, so the decode pipe and up to 8000 kernel-log lines do not tax every frame during normal use.
