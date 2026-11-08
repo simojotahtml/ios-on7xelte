@@ -57,20 +57,12 @@ jobs:
           echo "artifact download outcome: ${{ steps.artifact.outcome }}"
           ls -la kernel 2>&1 || true
 
-          K=""
-          for f in kernel/*; do
-            case "$f" in
-              *kernel*a5xelte*) K="$f" ;;
-            esac
-          done
-          if [ -z "$K" ]; then
-            for f in kernel/*; do
-              case "$f" in
-                *kernel*) K="$f" ;;
-              esac
-            done
-          fi
-          if [ -z "$K" ] || [ ! -f "$K" ]; then echo "no kernel Mach-O found under kernel/"; exit 1; fi
+          # The artifact also carries a kernel.*.link directory and kdk-libs; only
+          # a regular Mach-O file is the kernel image.
+          K=$(for f in kernel/kernel*.a5xelte kernel/kernel*.herolte kernel/kernel*; do
+                [ -f "$f" ] && echo "$f" && break
+              done)
+          if [ -z "$K" ]; then echo "no kernel Mach-O found under kernel/"; exit 1; fi
           echo "kernel: $K ($(stat -c %s "$K") bytes)"
 
           SYM=$(find_tool llvm-symbolizer llvm-symbolizer-18 llvm-symbolizer-17 llvm-symbolizer-19) || true
