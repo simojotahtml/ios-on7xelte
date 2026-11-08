@@ -25,7 +25,9 @@ jobs:
   symbolize:
     runs-on: ubuntu-24.04
     steps:
-      - name: Kernel from the xnu run
+      - name: Fetch the kernel artifact
+        id: artifact
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: xnu-kernel
@@ -37,35 +39,69 @@ jobs:
         env:
           ADDRESSES: ${{ inputs.addresses || '0xfffffff00748fdb4 0xfffffff00748fd98 0xfffffff007abe48c' }}
         run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq llvm > /dev/null
+          set -uo pipefail
+          log=/tmp/j7-sym.log
+          exec > >(tee -a "$log") 2>&1
 
-          pick() { for c in "$@"; do command -v "$c" >/dev/null 2>&1 && { echo "$c"; return; }; done; return 1; }
-          SYM=$(pick llvm-symbolizer llvm-symbolizer-18 llvm-symbolizer-17 llvm-symbolizer-19 llvm-symbolizer-16)
-          NM=$(pick llvm-nm llvm-nm-18 llvm-nm-17 llvm-nm-19 llvm-nm-16)
-          OBJDUMP=$(pick llvm-objdump llvm-objdump-18 llvm-objdump-17 llvm-objdump-19 llvm-objdump-16)
-          READOBJ=$(pick llvm-readobj llvm-readobj-18 llvm-readobj-17 llvm-readobj-19 llvm-readobj-16)
+          note() { python3 -c 'import os,sys; p=sys.argv[1]; t=open(p, errors="replace").read() if os.path.exists(p) else "(no report)"; print("::notice title=j7-sym::" + t[:40000].replace("%", "%25").replace("\n", "%0A"))' "$1"; }
+          fail() { python3 -c 'import os,sys; p=sys.argv[1]; t=open(p, errors="replace").read()[-15000:] if os.path.exists(p) else "(no log)"; print("::error title=j7-sym::" + t.replace("%", "%25").replace("\n", "%0A"))' "$1"; }
+          trap 'rc=$?; if [ $rc -ne 0 ]; then echo "step failed rc=$rc"; fail "$log"; fi' EXIT
 
-          ls -l kernel
-          K=$(ls kernel/kernel*.a5xelte kernel/kernel*.herolte 2>/dev/null | head -1)
-          [ -n "$K" ] || { echo "::error title=j7-sym::no kernel Mach-O in the artifact"; exit 1; }
+          find_tool() {
+            for c in "$@"; do
+              if command -v "$c" > /dev/null 2>&1; then echo "$c"; return 0; fi
+            done
+            return 1
+          }
+
+          echo "artifact download outcome: ${{ steps.artifact.outcome }}"
+          ls -la kernel 2>&1 || true
+
+          K=""
+          for f in kernel/*; do
+            case "$f" in
+              *kernel*a5xelte*) K="$f" ;;
+            esac
+          done
+          if [ -z "$K" ]; then
+            for f in kernel/*; do
+              case "$f" in
+                *kernel*) K="$f" ;;
+              esac
+            done
+          fi
+          if [ -z "$K" ] || [ ! -f "$K" ]; then echo "no kernel Mach-O found under kernel/"; exit 1; fi
           echo "kernel: $K ($(stat -c %s "$K") bytes)"
 
-          $READOBJ --macho-segment "$K" > /tmp/segments.txt 2>&1 || true
-          $NM -n --defined-only "$K" > /tmp/symbols.txt 2>&1 || true
+          SYM=$(find_tool llvm-symbolizer llvm-symbolizer-18 llvm-symbolizer-17 llvm-symbolizer-19) || true
+          if [ -z "$SYM" ]; then
+            echo "llvm-symbolizer missing; installing llvm"
+            ( sudo apt-get update -qq && sudo apt-get install -y -qq llvm ) 2>&1 | tail -5
+            SYM=$(find_tool llvm-symbolizer llvm-symbolizer-18 llvm-symbolizer-17 llvm-symbolizer-19) || true
+          fi
+          if [ -z "$SYM" ]; then
+            SYM=$(ls /usr/lib/llvm-*/bin/llvm-symbolizer 2>/dev/null | head -1)
+            [ -n "$SYM" ] && echo "using $SYM"
+          fi
+          if [ -z "$SYM" ]; then echo "no llvm-symbolizer available"; exit 1; fi
+
+          NM=$(find_tool llvm-nm llvm-nm-18 llvm-nm-17 llvm-nm-19) || NM=$(ls /usr/lib/llvm-*/bin/llvm-nm 2>/dev/null | head -1)
+          OBJDUMP=$(find_tool llvm-objdump llvm-objdump-18 llvm-objdump-17 llvm-objdump-19) || OBJDUMP=$(ls /usr/lib/llvm-*/bin/llvm-objdump 2>/dev/null | head -1)
+          READOBJ=$(find_tool llvm-readobj llvm-readobj-18 llvm-readobj-17 llvm-readobj-19) || READOBJ=$(ls /usr/lib/llvm-*/bin/llvm-readobj 2>/dev/null | head -1)
+          echo "tools: SYM=$SYM NM=$NM OBJDUMP=$OBJDUMP READOBJ=$READOBJ"
+
+          [ -n "${READOBJ:-}" ] && { "$READOBJ" --macho-segment "$K" > /tmp/segments.txt 2>&1 || true; }
+          [ -n "${NM:-}" ] && { "$NM" -n --defined-only "$K" > /tmp/symbols.txt 2>&1 || true; }
           for a in $ADDRESSES; do
-            $SYM --obj="$K" --inlines --demangle --functions=linkage "$a" > "/tmp/sym-$a.txt" 2>&1 || true
-            python3 - "$a" <<'PY' > "/tmp/range-$a.txt" 2>&1 || true
-          import sys
-          pc = int(sys.argv[1], 16)
-          print(hex(pc - 0x40), hex(pc + 0x40))
-          PY
-            set -- $(cat "/tmp/range-$a.txt")
-            $OBJDUMP -d --no-show-raw-insn --start-address="$1" --stop-address="$2" "$K" > "/tmp/dis-$a.txt" 2>&1 || true
+            "$SYM" --obj="$K" --inlines --demangle --functions=linkage "$a" > "/tmp/sym-$a.txt" 2>&1 || true
+            start=$(python3 -c 'import sys; print(hex(int(sys.argv[1],16)-0x40))' "$a")
+            stop=$(python3 -c 'import sys; print(hex(int(sys.argv[1],16)+0x40))' "$a")
+            [ -n "${OBJDUMP:-}" ] && {
+              "$OBJDUMP" -d --no-show-raw-insn --start-address="$start" --stop-address="$stop" "$K" > "/tmp/dis-$a.txt" 2>&1 || true
+            }
           done
 
-          python3 - "$K" "$ADDRESSES" <<'PY' > /tmp/report.txt
+          python3 - "$K" "$ADDRESSES" > /tmp/report.txt <<'PY'
           import sys
 
           kernel, addresses = sys.argv[1], sys.argv[2].split()
@@ -86,28 +122,26 @@ jobs:
                       pass
           syms.sort()
 
-          out = [f'### j7-sym', '', f'kernel: `{kernel}`', '', '#### segments', '```']
-
+          out = ['### j7-sym', '', f'kernel: `{kernel}`', '', '#### segments', '```']
           seg = {}
           for line in read('/tmp/segments.txt'):
               s = line.strip()
-              for key in ('Name:', 'Address:', 'Size:', 'FileOffset:'):
-                  if s.startswith(key):
-                      seg[key[:-1]] = s.split(':', 1)[1].strip()
-              if 'FileOffset' in seg and {'Name', 'Address', 'Size'} <= seg.keys():
-                  out.append(f"{seg['Name']:<20} vmaddr={seg['Address']:<20} size={seg['Size']:<12} off={seg['FileOffset']}")
+              for key in ('Name', 'Address', 'Size', 'FileOffset'):
+                  if s.startswith(key + ':'):
+                      seg[key] = s.split(':', 1)[1].strip()
+              if {'Name', 'Address', 'Size', 'FileOffset'} <= seg.keys():
+                  out.append(f"{seg['Name']:<18} vmaddr={seg['Address']:<20} size={seg['Size']:<12} off={seg['FileOffset']}")
                   seg = {}
-
           out += ['```', '', '#### addresses', '```']
 
           for addr in addresses:
               value = int(addr, 16)
               frames = ['  '.join(f.split(': ', 1)) for f in read(f'/tmp/sym-{addr}.txt') if f.strip()]
-              text = ' ; '.join(frames) if frames else '(no symbolizer match)'
               below = [s for s in syms if s[0] <= value]
               near = f'{below[-1][1]} + 0x{value - below[-1][0]:x}' if below else '?'
               out.append(f'{addr}  {near}')
-              out.append(f'    symbolizer: {text}')
+              if frames:
+                  out.append(f'    symbolizer: ' + ' ; '.join(frames))
               for line in read(f'/tmp/dis-{addr}.txt'):
                   if line.strip():
                       out.append(f'    {line}')
@@ -118,11 +152,4 @@ jobs:
           PY
 
           cat /tmp/report.txt >> "$GITHUB_STEP_SUMMARY"
-
-          # The run summary needs a login for some viewers; mirror the report as an
-          # annotation, which is public on a public repository.
-          python3 - <<'PY'
-          text = open('/tmp/report.txt', errors='replace').read()
-          text = text.replace('%', '%25').replace('\r', '').replace('\n', '%0A')
-          print(f'::notice title=j7-sym report::{text[:40000]}')
-          PY
+          note /tmp/report.txt
