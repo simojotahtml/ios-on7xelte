@@ -50,7 +50,7 @@ jobs:
           if [ -z "$id" ]; then
             url=$(printf 'https://api.github.com/repos/%s/actions/workflows/xnu.yml/runs?branch=%s&status=success&per_page=1' \
               "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME")
-            id=$(curl -sf -H "Authorization: Bearer ${GITHUB_TOKEN}" "$url" \
+            id=$(curl -sf -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "$url" \
               | python3 -c "import json,sys; print(json.load(sys.stdin)['workflow_runs'][0]['id'])")
           fi
           echo "Using xnu run id ${id}"
